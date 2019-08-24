@@ -10,7 +10,7 @@ This script supports both encrypted and plain-text token files. It can be used t
 * Make *(Optional, deploy script)*
 
 ### Install
-Run make install to automatically install it in  */usr/local/bin* directory or simply copy the *otpshell* file to any directory in path and give it appropriate execution permissions.
+Run `make install` to automatically install it in  `/usr/local/bin` directory or simply copy the `otpshell` file to any directory in path and give it appropriate execution permissions.
 
 ### Description
 bash shell script to generate OTP *value* from secret token using TOTP.
@@ -55,4 +55,4 @@ This will be copied directly into the paste buffer. Just press "CTRL-V" to paste
 ## Contents
 
 * Script to do the actual value generation
-* Makefile for base instalation (optional)
+* Makefile for base instalation and deploy requirements *(optional)*

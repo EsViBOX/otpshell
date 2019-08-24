@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+SECRET_DIR="$HOME/.secret"
+
+# OTP Help :)
+help() {
+  printf 'Command line OTP for use 2FA Tokens.\n'
+  printf 'Usage: %s [OPTIONS] <SECRET> \n\n' $(basename "$0")
+  printf ' -e, --encrypt <FILE>   encrypt file\n'
+  printf ' -d, --decrypt <FILE>   decrypt file\n'
+  printf ' -c, --check            check perms on [%s]\n' "$SECRET_DIR"
+  printf ' -l, --list             list all secrets\n'
+  printf ' -h, --help             show this help\n'
+  printf '\nReport bugs to jdoe@esvibox.com.\n'
+}
+
+# Check params
+if [ $# -eq 0 ]; then
+  help
+  exit 0
+fi
+
+# Check secret permision
+check() {
+  if [ "$(stat -c %a "$SECRET_DIR")" == "700" ]; then
+    printf "Perms on [%s] are good.\n" "$SECRET_DIR"
+  else
+    printf "ERROR: Perms on [%s] are too permissive. Try 'chmod 700 %s' first.\n" "$SECRET_DIR" "$SECRET_DIR"
+    exit 1
+  fi
+  if [ ! -f /usr/bin/oathtool ]; then
+  	printf "ERROR: oathtool is required"
+  	exit 1
+  fi
+}
+
+# Check if file exit
+check_file () {
+  if [ ! -f "$1" ]; then
+    printf "ERROR: The file [%s] does not exist" "$1"
+    exit 1
+  fi
+}
+
+encrypt_file() {
+  SECRET_PLAIN="$1"
+  check_file "$SECRET_PLAIN"
+
+  read -s -r -p "Password to encrypt file: " PASS1
+  printf "\n"
+
+  read -s -r -p "Enter the password again: " PASS2
+  printf "\n"
+
+  if [ "$PASS1" == "$PASS2" ]; then
+    TMP_PASS_FILE=$(mktemp /tmp/XXXXXXXX)
+    printf "%s" "$PASS1" >"$TMP_PASS_FILE"
+    openssl enc -aes-256-cbc -salt -iter 1 -pbkdf2 -pass file:"$TMP_PASS_FILE" -in "$SECRET_PLAIN" -out "$SECRET_PLAIN".enc && rm "$SECRET_PLAIN"
+    rm "$TMP_PASS_FILE"
+  else
+    echo "ERROR: The passwords do not match. Try this again."
+    rm "$TMP_PASS_FILE"
+    exit 1
+  fi
+}
+
+decrypt_file() {
+  SECRET_ENC="$1"
+  check_file "$SECRET_ENC"
+
+  read -s -r -p "Password to decrypt file: " PASS
+  printf "\n"
+
+  OUT_PLAIN=$(printf "%s" "$SECRET_ENC" | sed 's/.enc//')
+  TMP_PASS_FILE=$(mktemp /tmp/XXXXXXXX)
+  printf "%s" "$PASS" > "$TMP_PASS_FILE"
+  openssl enc -aes-256-cbc -d -salt -iter 1 -pbkdf2 -pass file:"$TMP_PASS_FILE" -in "$SECRET_ENC" -out "$OUT_PLAIN" && rm "$SECRET_ENC"
+  rm "$TMP_PASS_FILE"
+}
+
+
+# list secrets names
+list () {
+  basename -s .enc -a $(ls "$SECRET_DIR/")
+}
+
+
+# Generate code for 2FA from secret
+oauth() {
+
+  # Return the secret token from encrypted file
+  get_decrypted_secret() {
+    FILE="$1"
+    read -s -r -p "Password: " PASSWORD
+    printf '%s' "$PASSWORD" | openssl enc -aes-256-cbc -d -salt -iter 1 -pbkdf2 -pass stdin -in "$FILE" 2>/dev/null
+  }
+
+  # Return the secret token from plain file
+  get_plaintext_secret() {
+    FILE="$1"
+    cat "$FILE"
+  }
+
+  # Get secret token
+  SECRET="$1"
+  if [ -f "$SECRET_DIR/$SECRET.enc" ]; then
+    TOKEN=$(get_decrypted_secret "$SECRET_DIR/$SECRET.enc")
+  elif [ -f "$SECRET_DIR/$SECRET" ]; then
+    TOKEN=$(get_plaintext_secret "$SECRET_DIR/$SECRET")
+  else
+    printf "ERROR: Key file [%s] doesn't exist\n" "$SECRET_DIR/$SECRET"
+    exit 1
+  fi
+  printf "\n"
+
+  # Get OTP
+  AUTHCODE=$(oathtool --totp -b "$TOKEN" 2>/dev/null)
+  if [ -z "$AUTHCODE" ]; then
+    printf 'ERROR: Wrong password?\n'
+    exit 1
+  else
+    	printf "%s" "$AUTHCODE" | [ -f /usr/bin/xclip ] && xclip -sel clip
+  fi
+
+  # Loop (change every 30 sec)
+  SEC="$(date +%S)"
+  while true; do
+    if [ "$SEC" -eq 1 ]; then
+      AUTHCODE=$(oathtool --totp -b "$TOKEN" 2>/dev/null)
+      	printf "%s" "$AUTHCODE" | [ -f /usr/bin/xclip ] && xclip -sel clip
+    fi
+
+    if [ "$SEC" -gt 29 ]; then
+      SEC=$((SEC - 30))
+    fi
+
+    printf "$SECRET : %02d : %s\r" "$SEC" "$AUTHCODE"
+    SEC=$((SEC + 1))
+
+    sleep 1
+  done
+}
+
+# Logic params
+case "$1" in
+-c | --check)
+  check
+  ;;
+-l | --list)
+  list
+  ;;
+-e | --encrypt)
+  if [ -z "$2" ]; then
+    help
+    exit 1
+  fi
+  encrypt_file "$2"
+  ;;
+-d | --decrypt)
+  if [ -z "$2" ]; then
+    help
+    exit 1
+  fi
+  decrypt_file "$2"
+  ;;
+-h | --help)
+  help
+  ;;
+*)
+  check
+  oauth "$1"
+  ;;
+esac
+
+exit 0

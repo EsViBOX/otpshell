@@ -40,7 +40,7 @@ First ensure that there is a directory *~/.secret* in the home dir.
 * Run otp.sh without params show the incorporated help :)
 * Run otp.sh with name of token (filename without .enc suffix) Will show the following output:
     ```
-    $ ./otp.sh <name>
+    $ ./otpshell <name>
     Perms on [/home/<user>/.secret] are good.
     Password: 
     <name> : 23 : 163261
